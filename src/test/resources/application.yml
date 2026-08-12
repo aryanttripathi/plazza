@@ -18,6 +18,23 @@ spring:
       ddl-auto: create-drop
     open-in-view: false
 
+# Mirrors the shipped rate cards. Integration tests assert fares end to end, so these must match
+# application.yml; the pure pricing unit tests build their own cards and are unaffected by this.
+pricing:
+  cards:
+    HATCHBACK:
+      minimum-fare: 40
+      tiers:
+        - { from-km: 0, to-km: 2,      rate-per-km: 8 }
+        - { from-km: 2, to-km: 5,      rate-per-km: 6 }
+        - { from-km: 5, to-km: 100000, rate-per-km: 4 }
+    SEDAN:
+      minimum-fare: 50
+      tiers:
+        - { from-km: 0, to-km: 2,      rate-per-km: 10 }
+        - { from-km: 2, to-km: 5,      rate-per-km: 8 }
+        - { from-km: 5, to-km: 100000, rate-per-km: 5 }
+
 booking:
   default-radius-km: 5
 matching:

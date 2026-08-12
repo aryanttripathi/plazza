@@ -1,5 +1,8 @@
 package org.plazza.plazza.driver;
 
+import org.apache.commons.lang3.EnumUtils;
+import org.apache.commons.lang3.StringUtils;
+
 /**
  * Driver availability.
  * <p>
@@ -16,5 +19,14 @@ public enum DriverStatus {
     ON_TRIP,
 
     /** Online status withdrawn by the driver; never a matching candidate. */
-    OFFLINE
+    OFFLINE;
+
+    /**
+     * Null-safe, case-insensitive parse for values arriving over HTTP.
+     *
+     * @return the matching constant, or {@code null} when the input is blank or unrecognised
+     */
+    public static DriverStatus parseOrNull(String raw) {
+        return EnumUtils.getEnumIgnoreCase(DriverStatus.class, StringUtils.trimToNull(raw));
+    }
 }
