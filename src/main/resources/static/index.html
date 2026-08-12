@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ride Hailing — Live Console</title>
+<style>
+  :root {
+    --bg: #f6f7f9;      --panel: #ffffff;   --ink: #14171a;     --muted: #5b6470;
+    --line: #dfe3e8;    --accent: #2f6fed;  --ok: #157f4a;      --warn: #a05a00;
+    --err: #c0392b;     --chip: #eef1f5;    --code: #f3f4f6;
+    --sedan: #2f6fed;   --hatch: #157f4a;   --suv: #7c3aed;     --busy: #a05a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1216;    --panel: #171b21;   --ink: #e7eaee;     --muted: #99a2ad;
+      --line: #2a313a;  --accent: #6f9bff;  --ok: #4ec98a;      --warn: #e0a244;
+      --err: #ff7a6b;   --chip: #212832;    --code: #1c222a;
+      --sedan: #6f9bff; --hatch: #4ec98a;   --suv: #b18bff;     --busy: #e0a244;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  header {
+    padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 5;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .status { margin-left: auto; display: flex; align-items: center; gap: 7px; font-size: 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.up { background: var(--ok); } .dot.down { background: var(--err); }
+
+  .wrap { display: grid; grid-template-columns: minmax(0,1.25fr) minmax(0,1fr); gap: 16px; padding: 16px; align-items: start; }
+  @media (max-width: 1080px) { .wrap { grid-template-columns: 1fr; } }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 13px; margin: 0 0 4px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 650; }
+  .card p.hint { margin: 0 0 12px; color: var(--muted); font-size: 12.5px; }
+
+  button {
+    font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--chip); color: var(--ink);
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger  { color: var(--err); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row + .row { margin-top: 9px; }
+
+  label.field { display: inline-flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--muted); }
+  select, input[type=text], input[type=number] {
+    font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink); min-width: 110px;
+  }
+  input[type=range] { min-width: 190px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  td.num { text-align: right; font-family: ui-monospace, monospace; }
+
+  .chip { display: inline-block; padding: 1px 7px; border-radius: 20px; font-size: 11px; background: var(--chip); border: 1px solid var(--line); }
+  .chip.ok { color: var(--ok); } .chip.err { color: var(--err); } .chip.warn { color: var(--warn); }
+
+  #log { max-height: 460px; overflow-y: auto; }
+  .entry { border-bottom: 1px solid var(--line); padding: 7px 0; font-size: 12px; }
+  .entry:last-child { border-bottom: 0; }
+  .entry summary { cursor: pointer; display: flex; gap: 8px; align-items: baseline; list-style: none; }
+  .entry summary::-webkit-details-marker { display: none; }
+  .entry .verb { font-weight: 700; font-size: 10.5px; min-width: 46px; color: var(--muted); }
+  .entry .path { font-family: ui-monospace, monospace; font-size: 11.5px; word-break: break-all; flex: 1; }
+  .entry pre {
+    margin: 7px 0 0; padding: 8px; background: var(--code); border-radius: 6px;
+    font-size: 11px; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto;
+  }
+  .note { font-size: 12px; color: var(--muted); font-style: italic; padding: 6px 0; border-bottom: 1px solid var(--line); }
+
+  .pipeline { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; margin-top: 10px; }
+  .stage { flex: 1 1 96px; background: var(--chip); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; }
+  .stage .k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .stage .v { font-family: ui-monospace, monospace; font-size: 15px; margin-top: 2px; }
+  .stage.total { background: var(--accent); border-color: var(--accent); }
+  .stage.total .k, .stage.total .v { color: #fff; }
+  .stage.discount .v { color: var(--ok); }
+
+  svg { width: 100%; height: auto; display: block; border-radius: 8px; background: var(--chip); }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+  .banner { padding: 8px 11px; border-radius: 7px; font-size: 12.5px; margin-bottom: 11px; border: 1px solid; }
+  .banner.info { background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: var(--accent); }
+  .steps { counter-reset: step; }
+  .steps > .card > h2::before {
+    counter-increment: step; content: counter(step); display: inline-grid; place-items: center;
+    width: 17px; height: 17px; border-radius: 50%; background: var(--accent); color: #fff;
+    font-size: 10.5px; margin-right: 7px; vertical-align: -3px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Ride Hailing — Live Console</h1>
+    <div class="sub">Every button is a real HTTP call to this server. Watch the log on the right.</div>
+  </div>
+  <div class="status"><span class="dot" id="dot"></span><span id="statusText">checking…</span></div>
+</header>
+
+<div class="wrap">
+
+  <!-- ─────────────── left column ─────────────── -->
+  <div class="steps">
+
+    <div class="card">
+      <h2>Seed the world</h2>
+      <p class="hint">Registers one rider, three drivers around MG Road, and two coupons.</p>
+      <div class="row">
+        <button class="primary" onclick="seed()">Seed demo data</button>
+        <button onclick="runWholeFlow()">▶ Run the whole flow</button>
+        <button class="danger" onclick="resetAll()">Reset console</button>
+      </div>
+      <div id="world" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Map</h2>
+      <p class="hint">Driver positions, the pickup point and the search radius. The circle is the
+        real filter: the SQL prefilters a bounding box, then <span class="mono">ST_Distance_Sphere</span>
+        applies this circle.</p>
+      <svg id="map" viewBox="0 0 600 320" role="img" aria-label="Driver positions map"></svg>
+      <div class="legend">
+        <span><i style="background:var(--sedan)"></i>Sedan</span>
+        <span><i style="background:var(--hatch)"></i>Hatchback</span>
+        <span><i style="background:var(--suv)"></i>SUV</span>
+        <span><i style="background:var(--busy)"></i>On a trip</span>
+        <span><i style="background:var(--muted)"></i>Offline</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Pricing engine</h2>
+      <p class="hint">Quotes a fare without booking. Drag the distance and watch the slabs and the
+        minimum-fare floor fight over the answer.</p>
+      <div class="row">
+        <label class="field">Distance (km)
+          <input type="range" id="dist" min="0" max="30" step="0.5" value="7" oninput="quote()">
+        </label>
+        <span class="chip mono" id="distLabel">7 km</span>
+        <label class="field">Car type
+          <select id="quoteCar" onchange="quote()">
+            <option>SEDAN</option><option>HATCHBACK</option><option>SUV</option>
+          </select>
+        </label>
+        <label class="field">Coupon
+          <select id="quoteCoupon" onchange="quote()">
+            <option value="">none</option><option>SAVE20</option><option>FLAT30</option><option>OLD10</option>
+          </select>
+        </label>
+      </div>
+      <div id="quoteOut"></div>
+    </div>
+
+    <div class="card">
+      <h2>Book &amp; end a ride</h2>
+      <p class="hint">Booking reserves a driver with a conditional UPDATE; ending it prices the trip
+        and returns the driver to the pool.</p>
+      <div class="row">
+        <label class="field">Car type
+          <select id="bookCar"><option>SEDAN</option><option>HATCHBACK</option><option>SUV</option></select>
+        </label>
+        <label class="field">Destination
+          <select id="bookDrop">
+            <option value="far">Electronic City · ~15.8 km</option>
+            <option value="near">Koramangala · ~6.0 km</option>
+            <option value="hop">Around the corner · ~0.4 km</option>
+          </select>
+        </label>
+        <label class="field">Coupon
+          <select id="bookCoupon">
+            <option value="">none</option><option>  save20  </option><option>FLAT30</option>
+          </select>
+        </label>
+        <label class="field">Radius (km)
+          <input type="number" id="bookRadius" value="5" min="0.1" step="0.1" style="min-width:78px">
+        </label>
+      </div>
+      <div class="row">
+        <button class="primary" onclick="book()">Book ride</button>
+        <button onclick="endRide()" id="endBtn" disabled>End ride</button>
+      </div>
+      <div id="rideOut" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Edge cases</h2>
+      <p class="hint">The cases worth showing in a demo. Each is one real request.</p>
+      <div class="row">
+        <button onclick="edgeUpgrade()">Free upgrade</button>
+        <button onclick="edgeNoDriver()">No driver in radius</button>
+        <button onclick="edgeMinFare()">Minimum fare</button>
+        <button onclick="edgeDuplicate()">Two rides at once</button>
+        <button onclick="edgeBadCoupon()">Invalid coupon</button>
+        <button onclick="edgeEndTwice()">End twice</button>
+        <button onclick="edgeRace()">Race: 2 riders, 1 driver</button>
+      </div>
+      <div id="edgeOut" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Ride history</h2>
+      <div class="row">
+        <button onclick="loadHistory('')">All</button>
+        <button onclick="loadHistory('ONGOING')">Ongoing</button>
+        <button onclick="loadHistory('COMPLETED')">Completed</button>
+      </div>
+      <div id="histOut" style="margin-top:11px"></div>
+    </div>
+  </div>
+
+  <!-- ─────────────── right column ─────────────── -->
+  <div>
+    <div class="card" style="position:sticky; top:74px">
+      <h2 style="display:flex; align-items:center">Request log
+        <button style="margin-left:auto; font-size:11px; padding:3px 8px" onclick="clearLog()">clear</button>
+      </h2>
+      <p class="hint">Newest first. Click any row for the full response body.</p>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── geography ────────────────────────────────────────────────────────────────────────────────
+const PICKUP = { lat: 12.9716, lng: 77.5946, label: 'MG Road (pickup)' };
+const DROPS = {
+  far:  { lat: 12.8452, lng: 77.6602, label: 'Electronic City' },
+  near: { lat: 12.9279, lng: 77.6271, label: 'Koramangala' },
+  hop:  { lat: 12.9740, lng: 77.5970, label: 'Around the corner' }
+};
+const SEED_DRIVERS = [
+  { name: 'Ravi',    carType: 'SEDAN',     rating: 4.8, lat: 12.9750, lng: 77.5980 },
+  { name: 'Suresh',  carType: 'HATCHBACK', rating: 4.2, lat: 12.9800, lng: 77.6020 },
+  { name: 'Distant', carType: 'SEDAN',     rating: 5.0, lat: 13.1400, lng: 77.7000 }
+];
+
+let state = { userId: null, userB: null, drivers: [], rideId: null, radius: 5 };
+
+// ── HTTP with logging ────────────────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  let res, text;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined
+    });
+    text = await res.text();
+  } catch (e) {
+    log(method, path, 0, String(e), body);
+    return { status: 0, body: null };
+  }
+  let parsed = null;
+  try { parsed = text ? JSON.parse(text) : null; } catch { parsed = text; }
+  log(method, path, res.status, parsed, body);
+  return { status: res.status, body: parsed };
+}
+
+function log(method, path, status, response, request) {
+  const el = document.createElement('details');
+  el.className = 'entry';
+  const cls = status === 0 ? 'err' : status < 300 ? 'ok' : status < 500 ? 'warn' : 'err';
+  const time = new Date().toLocaleTimeString();
+  el.innerHTML =
+    `<summary>
+       <span class="verb">${method}</span>
+       <span class="path">${escapeHtml(path)}</span>
+       <span class="chip ${cls}">${status || 'ERR'}</span>
+       <span style="color:var(--muted);font-size:10.5px">${time}</span>
+     </summary>
+     ${request ? `<pre>→ ${escapeHtml(JSON.stringify(request, null, 2))}</pre>` : ''}
+     <pre>${escapeHtml(JSON.stringify(response, null, 2))}</pre>`;
+  const box = document.getElementById('log');
+  box.prepend(el);
+}
+
+function note(text) {
+  const el = document.createElement('div');
+  el.className = 'note';
+  el.textContent = text;
+  document.getElementById('log').prepend(el);
+}
+
+function clearLog() { document.getElementById('log').innerHTML = ''; }
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+const money = n => (n === null || n === undefined) ? '—' : '₹' + Number(n).toFixed(2);
+
+// ── health ───────────────────────────────────────────────────────────────────────────────────
+async function health() {
+  try {
+    const r = await fetch('/api/coupons');
+    setStatus(r.ok, r.ok ? 'connected' : 'HTTP ' + r.status);
+  } catch { setStatus(false, 'server unreachable'); }
+}
+function setStatus(up, text) {
+  document.getElementById('dot').className = 'dot ' + (up ? 'up' : 'down');
+  document.getElementById('statusText').textContent = text;
+}
+
+// ── seeding ──────────────────────────────────────────────────────────────────────────────────
+async function seed() {
+  note('Seeding: 2 riders, 3 drivers, 2 coupons');
+  const stamp = String(Date.now()).slice(-9);
+
+  const a = await api('POST', '/api/users', { name: 'Aryant', phone: '9' + stamp });
+  if (a.status !== 201) return;
+  state.userId = a.body.id;
+
+  const b = await api('POST', '/api/users', { name: 'Second rider', phone: '8' + stamp });
+  state.userB = b.status === 201 ? b.body.id : null;
+
+  state.drivers = [];
+  for (const d of SEED_DRIVERS) {
+    const r = await api('POST', '/api/drivers', d);
+    if (r.status === 201) state.drivers.push(r.body);
+  }
+
+  await api('POST', '/api/coupons', { code: 'save20', type: 'percent', value: 20, maxDiscount: 50 });
+  await api('POST', '/api/coupons', { code: 'FLAT30', type: 'FLAT', value: 30 });
+
+  render();
+  quote();
+}
+
+function resetAll() {
+  state = { userId: null, userB: null, drivers: [], rideId: null, radius: 5 };
+  document.getElementById('rideOut').innerHTML = '';
+  document.getElementById('edgeOut').innerHTML = '';
+  document.getElementById('histOut').innerHTML = '';
+  document.getElementById('endBtn').disabled = true;
+  clearLog();
+  render();
+}
+
+async function refreshDrivers() {
+  const updated = [];
+  for (const d of state.drivers) {
+    const r = await api('GET', '/api/drivers/' + d.id);
+    if (r.status === 200) updated.push(r.body);
+  }
+  state.drivers = updated;
+  render();
+}
+
+// ── rendering ────────────────────────────────────────────────────────────────────────────────
+function render() {
+  const w = document.getElementById('world');
+  if (!state.userId) {
+    w.innerHTML = `<div class="banner info">No data yet — press <b>Seed demo data</b>.</div>`;
+  } else {
+    w.innerHTML =
+      `<table><thead><tr><th>Driver</th><th>Car</th><th>Rating</th><th>Status</th><th>Distance</th></tr></thead><tbody>` +
+      state.drivers.map(d => `<tr>
+          <td>${escapeHtml(d.name)}</td>
+          <td><span class="chip">${d.carType}</span></td>
+          <td class="num">${Number(d.rating).toFixed(1)}</td>
+          <td><span class="chip ${d.status === 'AVAILABLE' ? 'ok' : d.status === 'ON_TRIP' ? 'warn' : ''}">${d.status}</span></td>
+          <td class="num">${haversine(PICKUP, d).toFixed(2)} km</td>
+        </tr>`).join('') +
+      `</tbody></table>`;
+  }
+  drawMap();
+}
+
+function haversine(a, b) {
+  const R = 6371, rad = x => x * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function drawMap() {
+  const svg = document.getElementById('map');
+  const pts = [PICKUP, ...state.drivers, DROPS[document.getElementById('bookDrop').value]];
+  const lats = pts.map(p => p.lat), lngs = pts.map(p => p.lng);
+  const pad = 0.02;
+  const minLat = Math.min(...lats) - pad, maxLat = Math.max(...lats) + pad;
+  const minLng = Math.min(...lngs) - pad, maxLng = Math.max(...lngs) + pad;
+  const X = p => 30 + (p.lng - minLng) / (maxLng - minLng || 1) * 540;
+  const Y = p => 290 - (p.lat - minLat) / (maxLat - minLat || 1) * 260;
+
+  // radius circle in pixels, using the latitude scale
+  const kmPerDegLat = 111;
+  const pxPerKm = (260 / ((maxLat - minLat) * kmPerDegLat || 1));
+  const radiusPx = Math.max(4, state.radius * pxPerKm);
+
+  const colour = d => d.status === 'OFFLINE' ? 'var(--muted)'
+    : d.status === 'ON_TRIP' ? 'var(--busy)'
+    : d.carType === 'SEDAN' ? 'var(--sedan)'
+    : d.carType === 'HATCHBACK' ? 'var(--hatch)' : 'var(--suv)';
+
+  const drop = DROPS[document.getElementById('bookDrop').value];
+  let out = `<circle cx="${X(PICKUP)}" cy="${Y(PICKUP)}" r="${radiusPx}"
+                fill="color-mix(in srgb, var(--accent) 9%, transparent)"
+                stroke="var(--accent)" stroke-dasharray="4 4" stroke-width="1"/>`;
+
+  out += `<line x1="${X(PICKUP)}" y1="${Y(PICKUP)}" x2="${X(drop)}" y2="${Y(drop)}"
+             stroke="var(--muted)" stroke-width="1.4" stroke-dasharray="6 5"/>`;
+
+  for (const d of state.drivers) {
+    out += `<circle cx="${X(d)}" cy="${Y(d)}" r="7" fill="${colour(d)}"/>
+            <text x="${X(d)}" y="${Y(d) - 12}" text-anchor="middle" font-size="11"
+                  fill="var(--ink)" font-family="ui-sans-serif">${escapeHtml(d.name)}</text>`;
+  }
+
+  out += `<rect x="${X(PICKUP) - 6}" y="${Y(PICKUP) - 6}" width="12" height="12" rx="2"
+             fill="var(--accent)" transform="rotate(45 ${X(PICKUP)} ${Y(PICKUP)})"/>
+          <text x="${X(PICKUP)}" y="${Y(PICKUP) + 22}" text-anchor="middle" font-size="11"
+                fill="var(--ink)" font-family="ui-sans-serif">pickup</text>`;
+
+  out += `<circle cx="${X(drop)}" cy="${Y(drop)}" r="6" fill="none" stroke="var(--ink)" stroke-width="2"/>
+          <text x="${X(drop)}" y="${Y(drop) + 20}" text-anchor="middle" font-size="11"
+                fill="var(--ink)" font-family="ui-sans-serif">${escapeHtml(drop.label)}</text>`;
+
+  svg.innerHTML = out;
+}
+
+// ── pricing quote ────────────────────────────────────────────────────────────────────────────
+async function quote() {
+  const km = document.getElementById('dist').value;
+  const car = document.getElementById('quoteCar').value;
+  const coupon = document.getElementById('quoteCoupon').value;
+  document.getElementById('distLabel').textContent = km + ' km';
+
+  let path = `/api/fare/estimate?distanceKm=${km}&carType=${car}`;
+  if (coupon) path += `&couponCode=${encodeURIComponent(coupon)}`;
+
+  const r = await api('GET', path);
+  const out = document.getElementById('quoteOut');
+
+  if (r.status !== 200) {
+    out.innerHTML = `<div class="banner" style="border-color:var(--err);color:var(--err)">
+        ${escapeHtml(r.body?.code || 'error')} — ${escapeHtml(r.body?.message || '')}</div>`;
+    return;
+  }
+  out.innerHTML = pipeline(r.body) + floorNote(r.body);
+}
+
+function pipeline(f) {
+  return `<div class="pipeline">
+      <div class="stage"><div class="k">base fare</div><div class="v">${money(f.baseFare)}</div></div>
+      <div class="stage"><div class="k">× surge</div><div class="v">${Number(f.surgeMultiplier).toFixed(2)}×</div></div>
+      <div class="stage"><div class="k">after surge</div><div class="v">${money(f.fareAfterSurge)}</div></div>
+      <div class="stage discount"><div class="k">− discount</div><div class="v">${money(f.discount)}</div></div>
+      <div class="stage total"><div class="k">total</div><div class="v">${money(f.total)}</div></div>
+    </div>`;
+}
+
+/** Explains, in the demo, whether the slabs or the minimum fare decided the base. */
+function floorNote(f) {
+  const cards = { SEDAN: { min: 50, t: [[0,2,10],[2,5,8],[5,1e9,5]] },
+                  HATCHBACK: { min: 40, t: [[0,2,8],[2,5,6],[5,1e9,4]] } };
+  const card = cards[f.billedCarType];
+  if (!card) return '';
+  const slabs = card.t.reduce((sum, [from, to, rate]) =>
+      sum + Math.max(0, Math.min(f.distanceKm, to) - from) * rate, 0);
+  const floored = slabs < card.min;
+  return `<p class="hint" style="margin-top:9px">
+      Slabs total ${money(slabs)}; the ${f.billedCarType} minimum is ${money(card.min)}.
+      <b>${floored ? 'The minimum fare wins.' : 'The slabs win.'}</b></p>`;
+}
+
+// ── booking ──────────────────────────────────────────────────────────────────────────────────
+function dropBody(key) { const d = DROPS[key]; return { lat: d.lat, lng: d.lng }; }
+
+async function book(overrides = {}) {
+  if (!state.userId) { note('Seed the demo data first'); return null; }
+  const radius = Number(document.getElementById('bookRadius').value);
+  state.radius = overrides.radiusKm ?? radius;
+
+  const body = {
+    userId: overrides.userId ?? state.userId,
+    pickup: { lat: PICKUP.lat, lng: PICKUP.lng },
+    drop: dropBody(overrides.drop ?? document.getElementById('bookDrop').value),
+    carType: overrides.carType ?? document.getElementById('bookCar').value,
+    radiusKm: overrides.radiusKm ?? radius
+  };
+  const coupon = overrides.couponCode ?? document.getElementById('bookCoupon').value;
+  if (coupon) body.couponCode = coupon;
+
+  const r = await api('POST', '/api/rides', body);
+  const out = document.getElementById('rideOut');
+
+  if (r.status !== 201) {
+    out.innerHTML = `<div class="banner" style="border-color:var(--err);color:var(--err)">
+        <b>${escapeHtml(r.body?.code || r.status)}</b> — ${escapeHtml(r.body?.message || '')}</div>`;
+    await refreshDrivers();
+    return r;
+  }
+
+  state.rideId = r.body.id;
+  document.getElementById('endBtn').disabled = false;
+  const driver = state.drivers.find(d => d.id === r.body.driverId);
+
+  out.innerHTML =
+    `<div class="banner info">
+       Ride <span class="mono">${r.body.id.slice(0, 8)}…</span> is <b>${r.body.status}</b>
+       with <b>${escapeHtml(driver ? driver.name : r.body.driverId.slice(0, 8))}</b>.
+       ${r.body.upgraded
+          ? `<br><b>Free upgrade:</b> asked for ${r.body.requestedCarType},
+             got a ${r.body.assignedCarType}, still billed as ${r.body.requestedCarType}.`
+          : ''}
+     </div>`;
+  await refreshDrivers();
+  return r;
+}
+
+async function endRide(id) {
+  const rideId = id || state.rideId;
+  if (!rideId) { note('No ride to end'); return null; }
+
+  const r = await api('POST', `/api/rides/${rideId}/end`);
+  const out = document.getElementById('rideOut');
+
+  if (r.status !== 200) {
+    out.innerHTML = `<div class="banner" style="border-color:var(--err);color:var(--err)">
+        <b>${escapeHtml(r.body?.code || r.status)}</b> — ${escapeHtml(r.body?.message || '')}</div>`;
+    return r;
+  }
+
+  out.innerHTML =
+    `<div class="banner info">Completed — ${r.body.distanceKm} km, billed on the
+       <b>${r.body.billedCarType}</b> rate card.</div>` + pipeline(r.body) + floorNote(r.body);
+
+  if (rideId === state.rideId) {
+    state.rideId = null;
+    document.getElementById('endBtn').disabled = true;
+  }
+  await refreshDrivers();
+  return r;
+}
+
+// ── edge cases ───────────────────────────────────────────────────────────────────────────────
+function edge(html) { document.getElementById('edgeOut').innerHTML = `<div class="banner info">${html}</div>`; }
+
+async function edgeUpgrade() {
+  note('Edge case: request a hatchback with none available');
+  const hatch = state.drivers.find(d => d.carType === 'HATCHBACK' && d.status === 'AVAILABLE');
+  if (hatch) await api('PATCH', `/api/drivers/${hatch.id}/status`, { status: 'OFFLINE' });
+
+  const r = await book({ carType: 'HATCHBACK', drop: 'far', couponCode: '' });
+  if (r?.status !== 201) return;
+  const fare = await endRide(r.body.id);
+  if (fare?.status === 200) {
+    edge(`Asked for a <b>HATCHBACK</b>, a <b>SEDAN</b> turned up, billed on the
+          <b>${fare.body.billedCarType}</b> card at <b>${money(fare.body.total)}</b>.
+          The same trip as a sedan is ₹97.76.`);
+  }
+  if (hatch) await api('PATCH', `/api/drivers/${hatch.id}/status`, { status: 'AVAILABLE' });
+  await refreshDrivers();
+}
+
+async function edgeNoDriver() {
+  note('Edge case: nobody within 100 metres');
+  const r = await book({ radiusKm: 0.1, couponCode: '' });
+  if (r?.status === 409) edge(`<b>409 ${r.body.code}</b> — ${escapeHtml(r.body.message)}. No driver was reserved.`);
+  state.radius = Number(document.getElementById('bookRadius').value);
+  drawMap();
+}
+
+async function edgeMinFare() {
+  note('Edge case: a 400 metre hop');
+  const r = await book({ drop: 'hop', carType: 'SEDAN', couponCode: '' });
+  if (r?.status !== 201) return;
+  const fare = await endRide(r.body.id);
+  if (fare?.status === 200) {
+    edge(`${fare.body.distanceKm} km of slabs would be pennies; the minimum fare makes it
+          <b>${money(fare.body.total)}</b>.`);
+  }
+}
+
+async function edgeDuplicate() {
+  note('Edge case: one rider, two ongoing rides');
+  const first = await book({ couponCode: '' });
+  if (first?.status !== 201) return;
+  const second = await book({ couponCode: '' });
+  if (second?.status === 409) {
+    edge(`<b>409 ${second.body.code}</b> — enforced by the <span class="mono">uk_active_user</span>
+          unique index in MySQL, not by a service-level check.`);
+  }
+  await endRide(first.body.id);
+}
+
+async function edgeBadCoupon() {
+  note('Edge case: unknown coupon');
+  const before = state.drivers.filter(d => d.status === 'AVAILABLE').length;
+  const r = await book({ couponCode: 'NOPE' });
+  await refreshDrivers();
+  const after = state.drivers.filter(d => d.status === 'AVAILABLE').length;
+  if (r?.status === 400) {
+    edge(`<b>400 ${r.body.code}</b> — rejected at booking. Available drivers before: ${before},
+          after: ${after}. Nobody was taken out of the pool.`);
+  }
+}
+
+async function edgeEndTwice() {
+  note('Edge case: end the same ride twice');
+  const r = await book({ couponCode: '' });
+  if (r?.status !== 201) return;
+  await endRide(r.body.id);
+  const again = await endRide(r.body.id);
+  if (again?.status === 409) {
+    edge(`<b>409 ${again.body.code}</b> — the ride is loaded <span class="mono">FOR UPDATE</span>,
+          so a second end sees COMPLETED instead of charging twice.`);
+  }
+}
+
+async function edgeRace() {
+  if (!state.userB) { note('Seed the demo data first'); return; }
+  note('Edge case: two riders request the last driver simultaneously');
+
+  const body = rider => ({
+    userId: rider,
+    pickup: { lat: PICKUP.lat, lng: PICKUP.lng },
+    drop: dropBody('near'),
+    carType: 'SEDAN',
+    radiusKm: 5
+  });
+
+  const [a, b] = await Promise.all([
+    api('POST', '/api/rides', body(state.userId)),
+    api('POST', '/api/rides', body(state.userB))
+  ]);
+
+  const created = [a, b].filter(r => r.status === 201);
+  const refused = [a, b].filter(r => r.status !== 201);
+  edge(`Fired both bookings in parallel: <b>${created.length} created</b>,
+        <b>${refused.length} refused</b> (${refused.map(r => r.body?.code).join(', ') || '—'}).
+        The conditional UPDATE means only one can win.`);
+
+  for (const r of created) await endRide(r.body.id);
+  await refreshDrivers();
+}
+
+// ── history ──────────────────────────────────────────────────────────────────────────────────
+async function loadHistory(status) {
+  if (!state.userId) { note('Seed the demo data first'); return; }
+  const path = `/api/users/${state.userId}/rides` + (status ? `?status=${status}` : '');
+  const r = await api('GET', path);
+  const out = document.getElementById('histOut');
+
+  if (r.status !== 200) { out.innerHTML = ''; return; }
+  if (!r.body.length) { out.innerHTML = `<p class="hint">No rides yet.</p>`; return; }
+
+  out.innerHTML =
+    `<table><thead><tr><th>Ride</th><th>Requested</th><th>Assigned</th><th>Status</th>
+       <th class="num">km</th><th class="num">Discount</th><th class="num">Total</th></tr></thead><tbody>` +
+    r.body.map(ride => `<tr>
+        <td class="mono">${ride.id.slice(0, 8)}…</td>
+        <td>${ride.requestedCarType}</td>
+        <td>${ride.assignedCarType}${ride.upgraded ? ' <span class="chip ok">upgraded</span>' : ''}</td>
+        <td><span class="chip ${ride.status === 'COMPLETED' ? 'ok' : 'warn'}">${ride.status}</span></td>
+        <td class="num">${ride.fare ? ride.fare.distanceKm : '—'}</td>
+        <td class="num">${ride.fare ? money(ride.fare.discount) : '—'}</td>
+        <td class="num">${ride.fare ? money(ride.fare.total) : '—'}</td>
+      </tr>`).join('') + `</tbody></table>`;
+}
+
+// ── scripted walkthrough ─────────────────────────────────────────────────────────────────────
+async function runWholeFlow() {
+  clearLog();
+  note('── Full flow: seed → quote → book → end → edge cases → history ──');
+  await seed();
+  await quote();
+  document.getElementById('bookCoupon').value = '  save20  ';
+  document.getElementById('bookDrop').value = 'far';
+  const r = await book();
+  if (r?.status === 201) await endRide();
+  await edgeUpgrade();
+  await edgeNoDriver();
+  await edgeBadCoupon();
+  await loadHistory('');
+  note('── Done. Scroll the log to replay every call. ──');
+}
+
+// ── boot ─────────────────────────────────────────────────────────────────────────────────────
+document.getElementById('bookDrop').addEventListener('change', drawMap);
+document.getElementById('bookRadius').addEventListener('input', e => {
+  state.radius = Number(e.target.value) || 5; drawMap();
+});
+health();
+render();
+setInterval(health, 15000);
+</script>
+</body>
+</html>
