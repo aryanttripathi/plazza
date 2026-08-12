@@ -2,6 +2,7 @@ package org.plazza.plazza.ride.api.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.plazza.plazza.common.enums.CarType;
+import org.plazza.plazza.pricing.api.dto.FareResponse;
 import org.plazza.plazza.ride.RideStatus;
 import org.plazza.plazza.ride.RideView;
 

@@ -8,6 +8,8 @@ import org.plazza.plazza.common.error.NotFoundException;
 import org.plazza.plazza.common.error.ValidationException;
 import org.plazza.plazza.common.geo.DistanceCalculator;
 import org.plazza.plazza.common.geo.Location;
+import org.plazza.plazza.common.text.Texts;
+import org.plazza.plazza.coupon.CouponService;
 import org.plazza.plazza.driver.DriverService;
 import org.plazza.plazza.driver.DriverView;
 import org.plazza.plazza.matching.MatchingStrategyResolver;
@@ -39,6 +41,7 @@ class RideServiceImpl implements RideService {
     private final RideJpaRepository rides;
     private final UserService users;
     private final DriverService drivers;
+    private final CouponService coupons;
     private final MatchingStrategyResolver matching;
     private final FareCalculator fareCalculator;
     private final SurgeStrategy surgeStrategy;
@@ -48,6 +51,7 @@ class RideServiceImpl implements RideService {
     RideServiceImpl(RideJpaRepository rides,
                     UserService users,
                     DriverService drivers,
+                    CouponService coupons,
                     MatchingStrategyResolver matching,
                     FareCalculator fareCalculator,
                     SurgeStrategy surgeStrategy,
@@ -56,6 +60,7 @@ class RideServiceImpl implements RideService {
         this.rides = rides;
         this.users = users;
         this.drivers = drivers;
+        this.coupons = coupons;
         this.matching = matching;
         this.fareCalculator = fareCalculator;
         this.surgeStrategy = surgeStrategy;
@@ -79,6 +84,13 @@ class RideServiceImpl implements RideService {
             throw new DuplicateActiveRideException("user", command.userId());
         });
 
+        // Validated up front so an unusable coupon is rejected before a driver is reserved, rather
+        // than surfacing at ride end when the rider is already at their destination.
+        String couponCode = Texts.normalizeCode(command.couponCode());
+        if (couponCode != null) {
+            coupons.validate(couponCode);
+        }
+
         Candidates candidates = findCandidates(pickup, radiusKm, requested);
         DriverView reserved = reserveFirstAvailable(candidates.drivers(), pickup, radiusKm);
 
@@ -89,7 +101,7 @@ class RideServiceImpl implements RideService {
                 reserved.carType(),         // actually assigned
                 pickup,
                 drop,
-                null));
+                couponCode));
 
         if (ride.isUpgraded()) {
             log.info("ride {} upgraded {} -> {} at no extra cost", ride.getId(), requested, reserved.carType());
@@ -112,9 +124,13 @@ class RideServiceImpl implements RideService {
         double distanceKm = distanceCalculator.distanceKm(ride.pickup(), ride.drop());
         BigDecimal surge = surgeStrategy.multiplier(ride.pickup(), Instant.now());
 
+        // The pricing engine decides when the discount applies (after surge) and clamps it to the
+        // fare; the coupon module decides how much it is. Neither knows the other's rule.
+        DiscountResolver discount = discountResolverFor(ride.getCouponCode());
+
         // Billed against the requested car type: this is the whole of the free-upgrade rule.
         FareBreakdown fare = fareCalculator.calculate(
-                distanceKm, ride.getRequestedCarType(), surge, DiscountResolver.none());
+                distanceKm, ride.getRequestedCarType(), surge, discount);
 
         applyFare(ride, fare);
         ride.close(RideStatus.COMPLETED);
@@ -197,6 +213,21 @@ class RideServiceImpl implements RideService {
             }
         }
         throw new NoDriverAvailableException(radiusKm);
+    }
+
+    /**
+     * A ride with no coupon gets the inert resolver rather than a null check at the call site.
+     * <p>
+     * A coupon that was valid at booking but has since been deleted or expired yields no discount
+     * instead of an error: refusing here would leave the rider unable to end their ride at all. The
+     * alternative — snapshotting the coupon's terms onto the ride at booking — is the more correct
+     * design and is recorded as future work.
+     */
+    private DiscountResolver discountResolverFor(String couponCode) {
+        if (Texts.isBlank(couponCode)) {
+            return DiscountResolver.none();
+        }
+        return fareAfterSurge -> coupons.discountFor(couponCode, fareAfterSurge);
     }
 
     private double resolveRadius(Double requested) {

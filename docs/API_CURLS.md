@@ -65,7 +65,7 @@ mysql -uroot -p -D plazza -e "
 
 ---
 
-## Phase 2 — pricing engine **[tests live; `/api/fare/estimate` lands in phase 5]**
+## Phase 2 — pricing engine **[live]**
 
 The pricing tests need neither Spring nor MySQL, so they are the fastest proof the core is right —
 53 of them run in well under a second:
@@ -74,20 +74,20 @@ The pricing tests need neither Spring nor MySQL, so they are the fastest proof t
 ./mvnw test -Dtest='TieredFareCalculatorTest,RateCardRegistryTest,DiscountPolicyTest'
 ```
 
-Fare quote without booking anything (endpoint arrives with the coupon work):
+Fare quote without booking anything — observed output:
 
 ```bash
 curl -s "$BASE/api/fare/estimate?distanceKm=7&carType=SEDAN" | jq
-# 2 km x 10 + 3 km x 8 + 2 km x 5 = 54.00
+# baseFare 54.0  <- 2 km x 10 + 3 km x 8 + 2 km x 5
 
 curl -s "$BASE/api/fare/estimate?distanceKm=3&carType=SEDAN" | jq
-# slabs give 28.00, minimum fare floors it to 50.00
+# baseFare 50.0  <- slabs give 28.00, the minimum fare floors it
 
 curl -s "$BASE/api/fare/estimate?distanceKm=7&carType=HATCHBACK" | jq
-# same trip on the cheaper rate card = 42.00
+# baseFare 42.0  <- same trip on the cheaper rate card
 
-curl -s "$BASE/api/fare/estimate?distanceKm=7&carType=SEDAN&couponCode=SAVE20" | jq
-# discount applied after surge, capped at the coupon's maxDiscount
+curl -s "$BASE/api/fare/estimate?distanceKm=16&carType=SEDAN&couponCode=SAVE20" | jq
+# baseFare 99.0, discount 19.8, total 79.2 — 20% taken off the post-surge fare
 ```
 
 ---
@@ -268,7 +268,7 @@ curl -s "$BASE/api/users/$USER_ID/rides?status=WEIRD" | jq
 
 ---
 
-## Phase 5 — coupons and history **[phase 5]**
+## Phase 5 — coupons and history **[live]**
 
 ### Add coupons
 
@@ -297,7 +297,8 @@ curl -s -X POST "$BASE/api/rides" \
        \"drop\":{\"lat\":$DROP_LAT,\"lng\":$DROP_LNG},
        \"carType\":\"SEDAN\",\"radiusKm\":5,
        \"couponCode\":\"  save20  \"}" | jq
-# note the padding and lower case: codes normalise through StringUtils, so this is SAVE20
+# Note the padding and lower case: codes normalise through StringUtils, so this is SAVE20.
+# Observed on a 15.751 km ride: baseFare 97.76, discount 19.55, total 78.21.
 ```
 
 ### Coupon rejections
@@ -323,8 +324,11 @@ curl -s -X POST "$BASE/api/rides" \
 ### Delete a coupon
 
 ```bash
-curl -i -s -X DELETE "$BASE/api/coupons/SAVE20"      # 204
-curl -i -s -X DELETE "$BASE/api/coupons/save20"      # 404 — already gone, lookup normalises
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE "$BASE/api/coupons/SAVE20"   # 204
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE "$BASE/api/coupons/save20"   # 404 — gone, lookup normalises
+
+# list what exists
+curl -s "$BASE/api/coupons" | jq
 ```
 
 ### Ride history

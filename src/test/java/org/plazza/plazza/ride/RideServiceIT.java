@@ -75,7 +75,7 @@ class RideServiceIT {
     }
 
     private RideView book(CarType carType) {
-        return rideService.book(new BookRideCommand(rider.id(), PICKUP, DROP, carType, 5.0));
+        return rideService.book(new BookRideCommand(rider.id(), PICKUP, DROP, carType, 5.0, null));
     }
 
     @Test
@@ -199,7 +199,7 @@ class RideServiceIT {
         DriverView driver = driverAt(CarType.SEDAN, 4.8, 12.9750, 77.5980);
 
         assertThatThrownBy(() -> rideService.book(
-                new BookRideCommand("no-such-user", PICKUP, DROP, CarType.SEDAN, 5.0)))
+                new BookRideCommand("no-such-user", PICKUP, DROP, CarType.SEDAN, 5.0, null)))
                 .isInstanceOf(NotFoundException.class);
 
         assertThat(driverService.requireById(driver.id()).status()).isEqualTo(DriverStatus.AVAILABLE);
@@ -263,7 +263,7 @@ class RideServiceIT {
             pool.submit(() -> {
                 try {
                     startTogether.await();
-                    rideService.book(new BookRideCommand(riderId, PICKUP, DROP, CarType.SEDAN, 5.0));
+                    rideService.book(new BookRideCommand(riderId, PICKUP, DROP, CarType.SEDAN, 5.0, null));
                     booked.incrementAndGet();
                 } catch (NoDriverAvailableException e) {
                     rejected.incrementAndGet();

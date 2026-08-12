@@ -7,7 +7,8 @@ import jakarta.validation.constraints.Positive;
 import org.plazza.plazza.common.api.dto.LocationRequest;
 
 /**
- * @param radiusKm optional; omitted means the configured default search radius
+ * @param radiusKm   optional; omitted means the configured default search radius
+ * @param couponCode optional; whitespace and case are normalised, so " save20 " finds SAVE20
  */
 public record BookRideRequest(
         @NotBlank(message = "userId is required")
@@ -25,5 +26,7 @@ public record BookRideRequest(
         String carType,
 
         @Positive(message = "radiusKm must be positive")
-        Double radiusKm) {
+        Double radiusKm,
+
+        String couponCode) {
 }

@@ -81,6 +81,25 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <!--
+                Two test tiers, deliberately separated:
+                  mvn test   - unit tests only (*Test). No Spring, no database, milliseconds.
+                  mvn verify - also runs the integration tests (*IT) against a real MySQL.
+                Without Failsafe wired up, `mvn test` would silently skip every *IT class and
+                report green while the database-backed guarantees went unverified.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

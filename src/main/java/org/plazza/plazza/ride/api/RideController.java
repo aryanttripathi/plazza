@@ -8,7 +8,7 @@ import org.plazza.plazza.ride.BookRideCommand;
 import org.plazza.plazza.ride.RideService;
 import org.plazza.plazza.ride.RideStatus;
 import org.plazza.plazza.ride.api.dto.BookRideRequest;
-import org.plazza.plazza.ride.api.dto.FareResponse;
+import org.plazza.plazza.pricing.api.dto.FareResponse;
 import org.plazza.plazza.ride.api.dto.RideResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -40,7 +40,8 @@ public class RideController {
                 request.pickup().toLocation(),
                 request.drop().toLocation(),
                 parseCarType(request.carType()),
-                request.radiusKm())));
+                request.radiusKm(),
+                request.couponCode())));
 
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
