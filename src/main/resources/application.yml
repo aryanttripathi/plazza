@@ -2,12 +2,19 @@ spring:
   application:
     name: plazza
 
+  # Default to the local profile so running PlazzaApplication straight from an IDE picks up
+  # application-local.yml without extra run configuration. Override with SPRING_PROFILES_ACTIVE.
+  # A checkout without that file is unaffected: an absent profile document is simply skipped, and
+  # credentials then come from MYSQL_USER / MYSQL_PASSWORD below.
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
   datasource:
     url: jdbc:mysql://localhost:3306/plazza?createDatabaseIfNotExist=true&serverTimezone=UTC
     username: ${MYSQL_USER:root}
     # Never commit a real credential. Supply it via the MYSQL_PASSWORD environment variable,
     # or via the git-ignored application-local.yml profile.
-    password: ${MYSQL_PASSWORD:root}
+    password: ${MYSQL_PASSWORD:Aryant@20}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
@@ -19,6 +26,10 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        # Stated explicitly rather than probed from a live connection. Without it, any connection
+        # failure surfaces as "Unable to determine Dialect without JDBC metadata", which sends you
+        # hunting for a dialect problem when the real cause is a bad password or a stopped server.
+        dialect: org.hibernate.dialect.MySQLDialect
 
 # Pricing is data, not code. A new car type is a block here; a new slab is a row.
 # Slabs are half-open [fromKm, toKm), must start at 0, and must be contiguous —
