@@ -23,7 +23,7 @@ Health check:
 ```bash
 curl -i http://localhost:8080/api/users -X POST \
   -H 'Content-Type: application/json' -d '{}'
-# expect 400 VALIDATION_FAILED once controllers land — proves the app is up and the
+# 400 VALIDATION_FAILED with per-field messages — proves the app is up and the
 # error contract is wired
 ```
 
@@ -33,8 +33,11 @@ Useful shell setup for everything below:
 BASE=http://localhost:8080
 # MG Road, Bengaluru — used as the pickup point throughout
 PICKUP_LAT=12.9716;  PICKUP_LNG=77.5946
-# Koramangala — roughly 7 km away, so the ride crosses all three pricing tiers
+# Koramangala — 6.001 km by haversine. Crosses all three slabs but still lands
+# just under the sedan minimum (49.005), so it demonstrates the minimum-fare floor.
 DROP_LAT=12.9279;    DROP_LNG=77.6271
+# Electronic City — ~16 km, well clear of the floor, for showing slab arithmetic
+FAR_DROP_LAT=12.8452; FAR_DROP_LNG=77.6602
 ```
 
 ---
@@ -62,15 +65,16 @@ mysql -uroot -p -D plazza -e "
 
 ---
 
-## Phase 2 — pricing engine **[phase 2]**
+## Phase 2 — pricing engine **[tests live; `/api/fare/estimate` lands in phase 5]**
 
-The pricing tests need neither Spring nor MySQL, so they are the fastest proof the core is right:
+The pricing tests need neither Spring nor MySQL, so they are the fastest proof the core is right —
+53 of them run in well under a second:
 
 ```bash
-./mvnw test -Dtest='TieredFareCalculatorTest,DiscountPolicyTest'
+./mvnw test -Dtest='TieredFareCalculatorTest,RateCardRegistryTest,DiscountPolicyTest'
 ```
 
-Fare quote without booking anything:
+Fare quote without booking anything (endpoint arrives with the coupon work):
 
 ```bash
 curl -s "$BASE/api/fare/estimate?distanceKm=7&carType=SEDAN" | jq
@@ -88,7 +92,7 @@ curl -s "$BASE/api/fare/estimate?distanceKm=7&carType=SEDAN&couponCode=SAVE20" |
 
 ---
 
-## Phase 3 — register riders and drivers **[phase 3]**
+## Phase 3 — register riders and drivers **[live]**
 
 ### Register a rider
 
@@ -153,7 +157,7 @@ curl -s -X POST "$BASE/api/drivers" \
 
 ---
 
-## Phase 4 — book and end a ride **[phase 4]**
+## Phase 4 — book and end a ride **[live]**
 
 ### Book
 
@@ -172,15 +176,29 @@ echo "ride: $RIDE_ID"
 
 ```bash
 curl -s -X POST "$BASE/api/rides/$RIDE_ID/end" | jq
+# Actual response for the MG Road -> Koramangala fixture:
 # {
-#   "distanceKm": 6.9,
+#   "distanceKm": 6.001,
 #   "billedCarType": "SEDAN",
-#   "baseFare": 53.50,
-#   "surgeMultiplier": 1.00,
-#   "fareAfterSurge": 53.50,
-#   "discount": 0.00,
-#   "total": 53.50
+#   "baseFare": 50.0,          <- slabs give 2x10 + 3x8 + 1.001x5 = 49.005,
+#   "surgeMultiplier": 1.0,       floored to the 50 minimum
+#   "fareAfterSurge": 50.0,
+#   "discount": 0.0,
+#   "total": 50.0
 # }
+```
+
+The same trip to Electronic City clears the floor, so the slabs are visible in the total:
+
+```bash
+FAR_RIDE=$(curl -s -X POST "$BASE/api/rides" -H 'Content-Type: application/json' \
+  -d "{\"userId\":\"$USER_ID\",
+       \"pickup\":{\"lat\":$PICKUP_LAT,\"lng\":$PICKUP_LNG},
+       \"drop\":{\"lat\":$FAR_DROP_LAT,\"lng\":$FAR_DROP_LNG},
+       \"carType\":\"SEDAN\",\"radiusKm\":5}" | jq -r .id)
+
+curl -s -X POST "$BASE/api/rides/$FAR_RIDE/end" | jq
+# ~16 km: 2x10 + 3x8 + ~11x5, so the total is well above the 50 floor
 ```
 
 ### Edge case — no driver inside the radius
@@ -211,7 +229,8 @@ curl -s -X POST "$BASE/api/rides" \
        \"carType\":\"HATCHBACK\",
        \"radiusKm\":5}" | jq
 # "assignedCarType":"SEDAN", "requestedCarType":"HATCHBACK", "upgraded":true
-# ending it bills the HATCHBACK rate card: 42.00, not 54.00
+# Ending it bills the HATCHBACK rate card. Observed on the Koramangala fixture:
+# billedCarType HATCHBACK, baseFare 40.0 (its own minimum), against 50.0 as a sedan.
 ```
 
 ### Edge case — minimum fare
@@ -229,8 +248,22 @@ curl -s -X POST "$BASE/api/rides" \
 ### Edge case — a rider cannot hold two ongoing rides
 
 ```bash
-# with one ride already ONGOING, booking again returns 409 DUPLICATE_ACTIVE_RIDE,
-# rejected by the uk_active_user index rather than by an application-level check
+# With one ride already ONGOING, booking again returns 409:
+# {"code":"DUPLICATE_ACTIVE_RIDE","message":"user <id> already has an ongoing ride"}
+curl -s -X POST "$BASE/api/rides" -H 'Content-Type: application/json' \
+  -d "{\"userId\":\"$USER_ID\",
+       \"pickup\":{\"lat\":$PICKUP_LAT,\"lng\":$PICKUP_LNG},
+       \"drop\":{\"lat\":$DROP_LAT,\"lng\":$DROP_LNG},
+       \"carType\":\"SEDAN\"}" | jq
+```
+
+### Ride lookup and an invalid history filter
+
+```bash
+curl -s "$BASE/api/rides/$RIDE_ID" | jq
+
+curl -s "$BASE/api/users/$USER_ID/rides?status=WEIRD" | jq
+# {"code":"VALIDATION_FAILED","message":"unknown status 'WEIRD', expected one of [ONGOING, COMPLETED, CANCELLED]"}
 ```
 
 ---
