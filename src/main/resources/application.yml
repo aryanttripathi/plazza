@@ -20,6 +20,24 @@ spring:
       hibernate:
         format_sql: true
 
+# Pricing is data, not code. A new car type is a block here; a new slab is a row.
+# Slabs are half-open [fromKm, toKm), must start at 0, and must be contiguous —
+# RateCardRegistry validates that on startup rather than mispricing quietly.
+pricing:
+  cards:
+    HATCHBACK:
+      minimum-fare: 40
+      tiers:
+        - { from-km: 0, to-km: 2,      rate-per-km: 8 }
+        - { from-km: 2, to-km: 5,      rate-per-km: 6 }
+        - { from-km: 5, to-km: 100000, rate-per-km: 4 }
+    SEDAN:
+      minimum-fare: 50
+      tiers:
+        - { from-km: 0, to-km: 2,      rate-per-km: 10 }
+        - { from-km: 2, to-km: 5,      rate-per-km: 8 }
+        - { from-km: 5, to-km: 100000, rate-per-km: 5 }
+
 booking:
   # Riders can override per request; this is the fallback search radius.
   default-radius-km: 5

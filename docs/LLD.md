@@ -184,8 +184,14 @@ classDiagram
 classDiagram
     class FareCalculator {
         <<interface>>
-        +FareBreakdown calculate(double distanceKm, CarType billedType, BigDecimal surge, BigDecimal discount)
+        +FareBreakdown calculate(double distanceKm, CarType billedType, BigDecimal surge, DiscountResolver resolver)
+        +FareBreakdown quote(double distanceKm, CarType carType)
     }
+    class DiscountResolver {
+        <<interface>>
+        +BigDecimal discountFor(BigDecimal fareAfterSurge)
+    }
+    FareCalculator ..> DiscountResolver
     class TieredFareCalculator {
         -RateCardRegistry registry
     }
@@ -247,7 +253,10 @@ classDiagram
     SurgeStrategy <|.. DemandSupplySurgeStrategy
 ```
 
-**The signature that carries the design:** `rank(...)` returns an ordered `List<DriverView>`, not `Optional<DriverView>`. That is what lets the booking loop retry after a lost reservation race without the matching strategy knowing that concurrency exists.
+**Two signatures carry the design:**
+
+1. `rank(...)` returns an ordered `List<DriverView>`, not `Optional<DriverView>`. That is what lets the booking loop retry after a lost reservation race without the matching strategy knowing that concurrency exists.
+2. `calculate(...)` takes a **`DiscountResolver` callback**, not a pre-computed discount amount. The pricing module owns the *ordering* rule — a coupon applies to the fare **after** surge — while the coupon module owns the discount arithmetic. A caller therefore cannot apply a coupon at the wrong stage, and `RideService` stays free of fare logic. `TieredFareCalculator` also clamps whatever the resolver returns into `[0, fareAfterSurge]`, so one badly written policy cannot produce a refund.
 
 ---
 
@@ -537,17 +546,31 @@ Coupon codes normalise on both write and read, so `" save20 "` and `SAVE20` are 
 
 | Class | Test | Assertion |
 |---|---|---|
-| `TieredFareCalculatorTest` | `sedan_7km` | ₹54 (2×10 + 3×8 + 2×5) |
-| | `sedan_3km_minimumFareFloor` | ₹50, not ₹28 |
-| | `boundary_2km_noDoubleCount` | ₹20 exactly |
-| | `hatchback_7km_cheaperThanSedan` | ₹42 < ₹54 |
-| | `zeroDistance_returnsMinimumFare` | ₹50 |
-| | `surgeAppliedAfterMinimumFare` | 1.5 × ₹50 = ₹75, not `max(50, 28×1.5)` |
-| | `malformedRateCard_failsOnStartup` | gap/overlap in tiers rejected |
-| `DiscountPolicyTest` | `percentCappedAtMaxDiscount` | 20% of ₹500 capped at ₹50 |
-| | `flatCoupon_neverNegative` | ₹100 flat on ₹54 → total ₹0 |
-| | `expiredCoupon_rejected` | `InvalidCouponException` |
-| | `couponCode_caseAndWhitespaceInsensitive` | `" save20 "` resolves to `SAVE20` |
+| `TieredFareCalculatorTest` (26 tests) | `sedan7km` | ₹54 (2×10 + 3×8 + 2×5) |
+| | `shortRideHitsTheFloor` | 3 km slabs give ₹28 → floored to ₹50 |
+| | `boundariesAreHalfOpen` | 2 km = ₹20, 5 km = ₹44 on a **zero-minimum card**, so the floor cannot hide a double-counted boundary |
+| | `fourKmUsesTwoSlabs` | ₹36 without a floor, ₹50 with one |
+| | `longRideUsesFinalTier` | 100 km = ₹519 |
+| | `hatchbackIsCheaper` | ₹42 < ₹54 for the same trip |
+| | `perCarTypeMinimum` | ₹40 hatchback vs ₹50 sedan |
+| | `zeroDistance` | ₹50 |
+| | `surgeAppliesAfterTheFloor` | 1.5 × ₹50 = ₹75, not `max(50, 28×1.5)` |
+| | `discountAppliesAfterSurge` | 10% of the ₹108 post-surge fare = ₹10.80, not ₹5.40 |
+| | `discountCannotExceedTheFare` | ₹500 discount on ₹54 → total ₹0 |
+| | `negativeDiscountIsIgnored` | a misbehaving policy cannot inflate a fare |
+| | `unconfiguredCarTypeIsRejected` | SUV without a card throws, never guesses a price |
+| | `amountsAreScaledForStorage` | every amount at scale 2 |
+| | `negativeDistanceRejected` / `nonPositiveSurgeRejected` | input guards |
+| `RateCardRegistryTest` (12 tests) | `gapIsRejected` / `overlapIsRejected` | malformed card fails at startup, naming the car type |
+| | `mustStartAtZero`, `emptySlabIsRejected`, `negativeRateIsRejected` | card validation |
+| | `outOfOrderTiersAreSorted` | config order is not a trap |
+| | `addingACarTypeIsConfigurationOnly` | SUV card priced with zero code change |
+| `DiscountPolicyTest` (14 tests) | `capped` | 20% of ₹500 capped at ₹50 |
+| | `capIsACeilingNotAFloor` | 20% of ₹54 stays ₹10.80 |
+| | `neverExceedsTheFare` | ₹100 flat on ₹54 → discount ₹54 |
+| | `expiryIsExclusive` | dead at the instant it expires |
+| | `deactivated` | reports *why* it is unusable |
+| `GeoUtilsTest` (7 tests) | `boundingBoxCoversTheRadius` | the indexed prefilter can never drop a driver the exact filter would accept |
 | `MatchingStrategyTest` | `nearestPicksClosestFirst` / `highestRatedPicksBestFirst` | ordering per strategy |
 | `RideServiceTest` (mocked ports) | `hatchbackRequest_sedanAssigned_billedHatchback` | `assignedCarType=SEDAN`, `billedCarType=HATCHBACK` |
 | | `noDriverInRadius` | `NoDriverAvailableException` |
