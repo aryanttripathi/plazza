@@ -62,7 +62,7 @@ Every axis the interviewer can ask to change live is either a **strategy bean** 
 | New coupon type | one `DiscountPolicy` implementation |
 | Swap nearest ↔ highest-rated matching | one property value |
 
-Details: [HLD.md](./HLD.md) · [LLD.md](./LLD.md).
+Details: [HLD.md](./HLD.md) · [LLD.md](./LLD.md) · runnable requests per phase: [API_CURLS.md](./API_CURLS.md).
 
 ---
 

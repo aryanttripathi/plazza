@@ -1,0 +1,24 @@
+# Test configuration.
+#
+# Integration tests run against a real MySQL instance rather than an embedded H2, because the
+# driver search uses MySQL-specific geo SQL (ST_Distance_Sphere) and the active-ride guarantee
+# relies on MySQL's "unique indexes ignore NULLs" behaviour. An H2 dialect that silently accepted
+# different SQL would produce a false green on exactly the claims worth verifying.
+#
+# Supply the password once per shell:  export MYSQL_PASSWORD='...'
+# The unit tests covering the pricing engine need none of this — they run without Spring.
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/plazza_test?createDatabaseIfNotExist=true&serverTimezone=UTC
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+
+booking:
+  default-radius-km: 5
+matching:
+  strategy: nearest

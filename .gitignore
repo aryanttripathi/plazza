@@ -33,3 +33,6 @@ build/
 .vscode/
 
 coding_assignment_round_2.pdf
+
+### Local credentials (never commit)
+src/main/resources/application-local.yml

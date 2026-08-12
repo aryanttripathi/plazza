@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: plazza
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/plazza?createDatabaseIfNotExist=true&serverTimezone=UTC
+    username: ${MYSQL_USER:root}
+    # Never commit a real credential. Supply it via the MYSQL_PASSWORD environment variable,
+    # or via the git-ignored application-local.yml profile.
+    password: ${MYSQL_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      # Exercise-scope choice: the schema is derived from the entities. Production wants Flyway
+      # migrations plus ddl-auto=validate, which is recorded in the README as future work.
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+booking:
+  # Riders can override per request; this is the fallback search radius.
+  default-radius-km: 5
+
+matching:
+  # Swappable without touching booking logic: nearest | highestRated
+  strategy: nearest
+
+logging:
+  level:
+    org.plazza.plazza: DEBUG
