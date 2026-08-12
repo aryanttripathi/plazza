@@ -49,6 +49,13 @@ pricing:
         - { from-km: 2, to-km: 5,      rate-per-km: 8 }
         - { from-km: 5, to-km: 100000, rate-per-km: 5 }
 
+demo:
+  # Registers POST /api/demo/reset, which deletes every row so the console at http://localhost:8080/
+  # can replay the demo from an empty database. Destructive and unauthenticated: this is an
+  # exercise convenience, and any real deployment must set it to false, at which point the
+  # controller bean is not created and the path 404s.
+  reset-enabled: ${DEMO_RESET_ENABLED:true}
+
 booking:
   # Riders can override per request; this is the fallback search radius.
   default-radius-km: 5

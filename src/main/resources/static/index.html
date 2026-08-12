@@ -111,8 +111,16 @@
     <h1>Ride Hailing — Live Console</h1>
     <div class="sub">Every button is a real HTTP call to this server. Watch the log on the right.</div>
   </div>
-  <div class="status"><span class="dot" id="dot"></span><span id="statusText">checking…</span></div>
+  <div class="status">
+    <label class="field" style="margin-right:6px">API base
+      <input type="text" id="apiBase" style="min-width:190px" placeholder="http://localhost:8080"
+             onchange="setBase(this.value)">
+    </label>
+    <span class="dot" id="dot"></span><span id="statusText">checking…</span>
+  </div>
 </header>
+
+<div id="originWarning"></div>
 
 <div class="wrap">
 
@@ -125,8 +133,12 @@
       <div class="row">
         <button class="primary" onclick="seed()">Seed demo data</button>
         <button onclick="runWholeFlow()">▶ Run the whole flow</button>
-        <button class="danger" onclick="resetAll()">Reset console</button>
+        <button class="danger" id="wipeBtn" onclick="wipeAndRestart()">Reset everything &amp; start over</button>
+        <button onclick="clearConsole()">Clear log</button>
       </div>
+      <p class="hint" style="margin:9px 0 0">
+        <b>Reset everything</b> calls <span class="mono">POST /api/demo/reset</span>, which truncates
+        every table, then re-seeds and replays the flow. Click it twice to confirm.</p>
       <div id="world" style="margin-top:12px"></div>
     </div>
 
@@ -253,11 +265,25 @@ const SEED_DRIVERS = [
 
 let state = { userId: null, userB: null, drivers: [], rideId: null, radius: 5 };
 
+// ── where the API lives ──────────────────────────────────────────────────────────────────────
+// Same origin when the page is served by the Spring app (the intended way). If the file is opened
+// through file:// or a static dev server such as Live Server, relative calls would hit that server
+// instead and come back as its own HTML 404 page, so fall back to the app's default address.
+let API_BASE = (location.protocol === 'http:' || location.protocol === 'https:')
+  ? location.origin
+  : 'http://localhost:8080';
+
+function setBase(value) {
+  API_BASE = (value || '').trim().replace(/\/$/, '') || location.origin;
+  document.getElementById('apiBase').value = API_BASE;
+  health();
+}
+
 // ── HTTP with logging ────────────────────────────────────────────────────────────────────────
 async function api(method, path, body) {
   let res, text;
   try {
-    res = await fetch(path, {
+    res = await fetch(API_BASE + path, {
       method,
       headers: body ? { 'Content-Type': 'application/json' } : {},
       body: body ? JSON.stringify(body) : undefined
@@ -269,6 +295,13 @@ async function api(method, path, body) {
   }
   let parsed = null;
   try { parsed = text ? JSON.parse(text) : null; } catch { parsed = text; }
+
+  // An HTML body means we are talking to something that is not this API — almost always a static
+  // file server serving the page, with the API nowhere near it.
+  if (typeof parsed === 'string' && /^\s*<(!doctype|html)/i.test(parsed)) {
+    wrongOrigin(`${API_BASE}${path} returned an HTML page rather than JSON`);
+  }
+
   log(method, path, res.status, parsed, body);
   return { status: res.status, body: parsed };
 }
@@ -306,11 +339,40 @@ const money = n => (n === null || n === undefined) ? '—' : '₹' + Number(n).t
 
 // ── health ───────────────────────────────────────────────────────────────────────────────────
 async function health() {
+  document.getElementById('apiBase').value = API_BASE;
   try {
-    const r = await fetch('/api/coupons');
-    setStatus(r.ok, r.ok ? 'connected' : 'HTTP ' + r.status);
-  } catch { setStatus(false, 'server unreachable'); }
+    const r = await fetch(API_BASE + '/api/coupons');
+    const text = await r.text();
+
+    if (/^\s*<(!doctype|html)/i.test(text)) {
+      setStatus(false, 'wrong origin');
+      wrongOrigin(`${API_BASE}/api/coupons returned an HTML page, not JSON`);
+      return;
+    }
+    setStatus(r.ok, r.ok ? 'connected to ' + API_BASE : 'HTTP ' + r.status);
+    if (r.ok) clearWrongOrigin();
+  } catch (e) {
+    setStatus(false, 'unreachable');
+    wrongOrigin(`Cannot reach ${API_BASE}. Is the app running?`);
+  }
 }
+
+function wrongOrigin(detail) {
+  const servedByApp = location.port === '8080';
+  document.getElementById('originWarning').innerHTML =
+    `<div style="margin:16px 16px 0"><div class="banner" style="border-color:var(--err)">
+       <b>The API is not where this page is looking.</b><br>
+       ${escapeHtml(detail)}<br><br>
+       ${servedByApp
+         ? 'Start the server: <span class="mono">./mvnw spring-boot:run</span>'
+         : `This page is being served from <span class="mono">${escapeHtml(location.origin || 'file://')}</span>,
+            which is not the API. Open the console from the app itself —
+            <a href="http://localhost:8080/">http://localhost:8080/</a> — rather than through
+            file:// or a static dev server. Or set the API base field above and carry on.`}
+     </div></div>`;
+}
+
+function clearWrongOrigin() { document.getElementById('originWarning').innerHTML = ''; }
 function setStatus(up, text) {
   document.getElementById('dot').className = 'dot ' + (up ? 'up' : 'down');
   document.getElementById('statusText').textContent = text;
@@ -341,14 +403,61 @@ async function seed() {
   quote();
 }
 
-function resetAll() {
+/** Clears only what the browser is holding. The database is untouched. */
+function clearConsole() {
   state = { userId: null, userB: null, drivers: [], rideId: null, radius: 5 };
-  document.getElementById('rideOut').innerHTML = '';
-  document.getElementById('edgeOut').innerHTML = '';
-  document.getElementById('histOut').innerHTML = '';
+  for (const id of ['rideOut', 'edgeOut', 'histOut', 'quoteOut']) {
+    document.getElementById(id).innerHTML = '';
+  }
   document.getElementById('endBtn').disabled = true;
   clearLog();
   render();
+}
+
+/**
+ * Truncates every table on the server, then seeds and replays the flow from nothing.
+ *
+ * Two clicks are required rather than a confirm() dialog: a modal would block the page, and this
+ * keeps the whole console scriptable.
+ */
+let wipeArmed = false;
+async function wipeAndRestart() {
+  const btn = document.getElementById('wipeBtn');
+
+  if (!wipeArmed) {
+    wipeArmed = true;
+    btn.textContent = 'Click again to wipe the database';
+    btn.classList.add('primary');
+    setTimeout(() => {
+      if (!wipeArmed) return;
+      wipeArmed = false;
+      btn.textContent = 'Reset everything & start over';
+      btn.classList.remove('primary');
+    }, 4000);
+    return;
+  }
+
+  wipeArmed = false;
+  btn.textContent = 'Resetting…';
+  btn.classList.remove('primary');
+  btn.disabled = true;
+
+  clearConsole();
+  note('── Reset: wiping every table, then starting from scratch ──');
+
+  const r = await api('POST', '/api/demo/reset');
+  if (r.status === 404) {
+    edge(`<b>Reset endpoint is disabled.</b> It only exists when
+          <span class="mono">demo.reset-enabled</span> is true.`);
+  } else if (r.status === 200) {
+    const rows = Object.entries(r.body.deleted).map(([t, n]) => `${n} ${t}`).join(', ');
+    note(`Deleted ${rows}. Database is empty.`);
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Reset everything & start over';
+
+  if (r.status === 200) await runWholeFlow({ keepLog: true });
 }
 
 async function refreshDrivers() {
@@ -676,8 +785,8 @@ async function loadHistory(status) {
 }
 
 // ── scripted walkthrough ─────────────────────────────────────────────────────────────────────
-async function runWholeFlow() {
-  clearLog();
+async function runWholeFlow(opts = {}) {
+  if (!opts.keepLog) clearLog();
   note('── Full flow: seed → quote → book → end → edge cases → history ──');
   await seed();
   await quote();
